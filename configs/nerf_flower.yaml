@@ -1,0 +1,38 @@
+seed: 1
+type: train_nerf
+
+data:
+  dataset_name: llff_custom
+  images_dir: "data/flower/images"
+  poses_bounds_path: "data/flower/poses_bounds.npy"
+  downscale: 1
+  image_size: [128, 128]
+
+training:
+  num_epochs: 250
+  batch_size: 4096 #4096
+  lr: 0.0005
+  checkpoint_path: ""
+  resume: false
+  checkpoint_interval: 249
+  render_interval: 249
+  lr_scheduler_gamma: 0.1
+  lr_scheduler_step_size: 100
+
+implicit_function:
+  type: nerf
+  n_harmonic_functions_xyz: 6
+  n_layers_xyz: 6
+  n_hidden_neurons_xyz: 128
+  append_xyz: [3]
+
+sampler:
+  type: stratified
+  n_pts_per_ray: 64
+  min_depth: 0.0
+  max_depth: 5.0
+
+renderer:
+  type: volume
+  chunk_size: 32768
+  white_background: false

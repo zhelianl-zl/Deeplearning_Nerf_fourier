@@ -1,0 +1,312 @@
+                    <meta charset="utf-8" emacsmode="-*- markdown -*">
+                            **CMSC848F-3D Vision**
+                                **Project 3**
+                            **Darshit Desai**
+                            **Dir id: darshit; Email: darshit@umd.edu**                           
+Differentiable Volume Rendering
+===============================================================================
+In the emission-absorption (EA) model described in class, volumes are typically described by their *appearance* (e.g. emission) and *geometry* (absorption) at *every point* in 3D space. For part 1 of the assignment, you will implement a ***Differentiable Renderer*** for EA volumes, which you will use in parts 2 and 3. Differentiable renderers are extremely useful for 3D learning problems --- one reason is because they allow you to optimize scene parameters (i.e. perform inverse rendering) from image supervision only!
+
+The github repository for this assignment is [here](https://github.com/darshit-desai/NeRF-VolumeRendering-3DVision)
+
+Familiarize yourself with the code structure
+-------------------------------------------------------------------------------
+There are four major components of our differentiable volume rendering pipeline:
+
+* ***The camera***: `pytorch3d.CameraBase`
+* ***The scene***: `SDFVolume` in `implicit.py`
+* ***The sampling routine***: `StratifiedSampler` in `sampler.py`
+* ***The renderer***: `VolumeRenderer` in `renderer.py`
+
+`StratifiedSampler` provides a method for sampling multiple points along a ray traveling through the scene (also known as *raymarching*). Together, a sampler and a renderer describe a rendering pipeline. Like traditional graphics pipelines, this rendering procedure is independent of the scene and camera.
+
+The scene, sampler, and renderer are all packaged together under the `Model` class in `main.py`. In particular the `Model`'s forward method invokes a `VolumeRenderer` instance with a sampling strategy and volume as input.
+
+Also, take a look at the `RayBundle` class in `ray_utils.py`, which provides a convenient wrapper around several inputs to the volume rendering procedure per ray.
+
+Outline of tasks
+-------------------------------------------------------------------------------
+In order to perform rendering, you will implement the following routines:
+
+1. **Ray sampling from cameras**: you will fill out methods in `ray_utils.py` to generate world space rays from a particular camera.
+2. **Point sampling along rays**: you will fill out the `StratifiedSampler` class to generate sample points along each world space ray
+3. **Rendering**: you will fill out the `VolumeRenderer` class to *evaluate* a volume function at each sample point along a ray, and aggregate these evaluations to perform rendering.
+
+Ray sampling (10 points)
+-------------------------------------------------------------------------------
+Take a look at the `render_images` function in `main.py`. It loops through a set of cameras, generates rays for each pixel on a camera, and renders these rays using a `Model` instance.
+
+### Visualization
+
+You can run the code for part 1 with:
+
+```bash
+python main.py --config-name=box
+```
+
+Once you have implemented these methods, verify that your output matches the TA output by visualizing both `xy_grid` and `rays` with the `vis_grid` and `vis_rays` functions in the `render_images` function in `main.py`. **By default, the above command will crash and return an error**. However, it should reach your visualization code before it does.
+ 
+**Answer-** These are my outputs after implementing `get_pixels_from_image` in `ray_utils.py` and `get_rays_from_pixels` in `ray_utils.py` given below:
+
+<style>
+  table {
+    width: 100%;
+    text-align: center;
+  }
+  td {
+    width: 100%;
+    padding: 1px;
+    border: 1px solid #ccc;
+    box-sizing: border-box; /* Prevents the border from affecting layout */
+  }
+  figure {
+    margin: 0; /* Remove default margins around figures */
+  }
+  img {
+    width: 75%; /* Make the images fill their container */
+  }
+</style>
+<table style="width: 100%; text-align: center;">
+  <tr>
+    <td style="width: 50%;">
+      <figure style="display: inline-block; width: 100%;">
+        <img src="images/prob1.3_grid.png" alt="My image output for xy grid" />
+        <figcaption>My image output for xy grid</figcaption>
+      </figure>
+    </td>
+    <td style="width: 50%;">
+      <figure style="display: inline-block; width: 100%;">
+        <img src="images/prob1.3_rays.png" alt="My image output for rays" />
+        <figcaption>My image output for rays</figcaption>
+      </figure>
+    </td>
+  </tr>
+  <tr>
+    <td style="width: 50%;">
+      <figure style="display: inline-block; width: 100%;">
+        <img src="ta_images/grid.png" alt="TA's image output for xy grid" />
+        <figcaption>TA's image output for xy grid</figcaption>
+      </figure>
+    </td>
+    <td style="width: 50%;">
+      <figure style="display: inline-block; width: 100%;">
+        <img src="ta_images/rays.png" alt="TA's image output for rays" />
+        <figcaption>TA's image output for rays</figcaption>
+      </figure>
+    </td>
+  </tr>
+</table>
+
+Point sampling (10 points)
+-------------------------------------------------------------------------------
+### Visualization
+
+Once you have done this, use the `render_points` method in `render_functions.py` in order to visualize the point samples from the first camera. They should look like this:
+
+**Answer-** These are my outputs compared with TA outputs after implementing `StratifiedSampler` in `sampler.py` given below:
+
+Note I modified the function call of rasterizer to explicity change the background to black,
+
+<table style="width: 100%; text-align: center;">
+  <tr>
+    <td style="width: 50%;">
+      <figure style="display: inline-block; width: 100%;">
+        <img src="images/raypoints_0_points.png" alt="My ray visualization" />
+        <figcaption>My ray visualization</figcaption>
+      </figure>
+    </td>
+    <td style="width: 50%;">
+      <figure style="display: inline-block; width: 100%;">
+        <img src="ta_images/sample_points.png" alt="TA's ray visualization" />
+        <figcaption>TA's ray visualization</figcaption>
+      </figure>
+    </td>
+  </tr>
+</table>
+
+Volume rendering (30 points)
+-------------------------------------------------------------------------------
+
+Finally, we can implement volume rendering! With the `configs/box.yaml` configuration, we provide you with an `SDFVolume` instance describing a box. You can check out the code for this function in `implicit.py`, which converts a signed distance function into a volume. If you want, you can even implement your own `SDFVolume` classes by creating new signed distance function class, and adding it to `sdf_dict` in `implicit.py`. Take a look at [this great web page](https://www.iquilezles.org/www/articles/distfunctions/distfunctions.htm) for formulas for some simple/complex SDFs.
+
+You'll then use the following equation to render color along a ray:
+
+![Equation for rendering color](ta_images/color.PNG)
+
+where `σ` is density, `Δt` is the length of current ray segment, and `L_e` is color:
+
+![Equation for calculating transmittance](ta_images/transmittance.PNG)
+
+Compute the weights `T * (1 - exp(-σ * Δt))` in `VolumeRenderer._compute_weights`, and perform the summation in `VolumeRenderer._aggregate`. Note that for the first segment `T = 1`. (Hint: using torch.cumprod would be useful in computing the transmittance)
+
+Use weights, and aggregation function to render *color* and *depth* (stored in `RayBundle.sample_lengths`). 
+
+### Visualization
+
+By default, your results will be written out to `images/part_1.gif`. Provide a visualization of the depth in your write-up.
+
+**Answer-** 
+My visualization for the 360 render of cube and the depth image is as given below:
+<table style="width: 100%; text-align: center;">
+  <tr>
+    <td style="width: 50%;">
+      <figure style="display: inline-block; width: 100%;">
+        <img src="images/part_1.gif" alt="360 degree render of box" />
+        <figcaption>360 degree render of box</figcaption>
+      </figure>
+    </td>
+    <td style="width: 50%;">
+      <figure style="display: inline-block; width: 100%;">
+        <img src="images/part_1_depth.png" alt="Depth image render of box" />
+        <figcaption>Depth image render of box</figcaption>
+      </figure>
+    </td>
+  </tr>
+</table>
+
+Optimizing a basic implicit volume
+===============================================================================
+
+Random ray sampling (5 points)
+-------------------------------------------------------------------------------
+
+Since you have now implemented a differentiable volume renderer, we can use it to optimize the parameters of a volume! We have provided a basic training loop in the `train` method in `main.py`.
+
+Depending on how many sample points we take for each ray, volume rendering can consume a lot of memory on the GPU (especially during the backward pass of gradient descent). Because of this, it usually makes sense to sample a subset of rays from a full image for each training iteration. In order to do this, implement the `get_random_pixels_from_image` method in `ray_utils.py`, invoked here:
+
+```python
+xy_grid = get_random_pixels_from_image(cfg.training.batch_size, image_size, camera) # TODO: implement in ray_utils.py
+```
+Loss and training (5 points)
+-------------------------------------------------------------------------------
+Replace the loss in `train` with mean squared error between the predicted colors and ground truth colors `rgb_gt`.
+
+Once you've done this, you can run train a model with
+
+```bash
+python main.py --config-name=train_box
+```
+
+This will optimize the position and side lengths of a box, given a few ground truth images with known camera poses (in the `data` folder). Report the center of the box, and the side lengths of the box after training, rounded to the nearest `1/100` decimal place.
+
+**Answer-** Here is the center of the box and their respective side lengths after training:
+  ```bash
+  Box center: (0.2502206563949585, 0.25057458877563477, -0.00048012484330683947)
+  Box side lengths: (2.005105972290039, 1.503570318222046, 1.5033116340637207)
+  ```
+Visualization
+-------------------------------------------------------------------------------
+The code renders a spiral sequence of the optimized volume in `images/part_2.gif`. Compare this gif to the one below, and attach it in your write-up:
+
+**Answer-** Here is the gif of the spiral sequence of the optimized volume compared with TA's output:
+
+<table style="width: 100%; text-align: center;">
+  <tr>
+    <td style="width: 50%;">
+      <figure style="display: inline-block; width: 100%;">
+        <img src="images/part_2.gif" alt="360 degree render of the optimized volume with random sampling" />
+        <figcaption>360 degree render of the optimized volume with random sampling (My output)</figcaption>
+      </figure>
+    </td>
+    <td style="width: 50%;">
+      <figure style="display: inline-block; width: 100%;">
+        <img src="ta_images/part_2.gif" alt="TA's output for Part 2" />
+        <figcaption>TA's output for Part 2</figcaption>
+      </figure>
+    </td>
+  </tr>
+</table>
+
+Optimizing a Neural Radiance Field (NeRF) (30 points)
+===============================================================================
+
+In this part, you will implement an implicit volume as a Multi-Layer Perceptron (MLP) in the `NeuraRadianceField` class in `implicit.py`. This MLP should map 3D position to volume density and color. Specifically:
+
+1. Your MLP should take in a `RayBundle` object in its forward method, and produce color and density for each sample point in the RayBundle.
+2. You should also fill out the loss in `train_nerf` in the `main.py` file.
+
+You will then use this implicit volume to optimize a scene from a set of RGB images. We have implemented data loading, training, checkpointing for you, but this part will still require you to do a bit more legwork than for Parts 1 and 2. You will have to write the code for the MLP yourself --- feel free to reference the NeRF paper, though you should not directly copy code from an external repository.
+
+Implementation
+-------------------------------------------------------------------------------
+Here are a few things to note:
+
+1. For now, your NeRF MLP does not need to handle *view dependence*, and can solely depend on 3D position.
+2. You should use the `ReLU` activation to map the first network output to density (to ensure that density is non-negative)
+3. You should use the `Sigmoid` activation to map the remaining raw network outputs to color
+4. You can use *Positional Encoding* of the input to the network to achieve higher quality. We provide an implementation of positional encoding in the `HarmonicEmbedding` class in `implicit.py`.
+
+**Answer-** Here's the model that I implemented using HarmonicEmbedding for positional encoding and I used the MLP architecture MLPwithskips given in the starter code as given below:
+
+```BASH
+Nerf model:-
+Model(
+  (implicit_fn): NeuralRadianceField(
+    (harmonic_embedding_xyz): HarmonicEmbedding()
+    (MultiLP): MLPWithInputSkips(
+      (mlp): ModuleList(
+        (0): Sequential(
+          (0): Linear(in_features=39, out_features=128, bias=True)
+          (1): ReLU(inplace=True)
+        )
+        (1): Sequential(
+          (0): Linear(in_features=128, out_features=128, bias=True)
+          (1): ReLU(inplace=True)
+        )
+        (2): Sequential(
+          (0): Linear(in_features=128, out_features=128, bias=True)
+          (1): ReLU(inplace=True)
+        )
+        (3): Sequential(
+          (0): Linear(in_features=167, out_features=128, bias=True)
+          (1): ReLU(inplace=True)
+        )
+        (4): Sequential(
+          (0): Linear(in_features=128, out_features=128, bias=True)
+          (1): ReLU(inplace=True)
+        )
+        (5): Sequential(
+          (0): Linear(in_features=128, out_features=128, bias=True)
+          (1): ReLU(inplace=True)
+        )
+      )
+    )
+    (relu): ReLU()
+    (sigmoid): Sigmoid()
+    (linear1): Linear(in_features=128, out_features=4, bias=True)
+  )
+  (sampler): StratifiedRaysampler()
+  (renderer): VolumeRenderer()
+)
+```
+Visualization
+-------------------------------------------------------------------------------
+You can train a NeRF on the lego bulldozer dataset with
+
+```bash
+python main.py --config-name=nerf_lego
+```
+
+This will create a NeRF with the `NeuralRadianceField` class in `implicit.py`, and use it as the `implicit_fn` in `VolumeRenderer`. It will also train a NeRF for 250 epochs on 128x128 images.
+
+Feel free to modify the experimental settings in `configs/nerf_lego.yaml` --- though the current settings should allow you to train a NeRF on low-resolution inputs in a reasonable amount of time. After training, a spiral rendering will be written to `images/part_3.gif`. Report your results. It should look something like this:
+
+**Answer-** Here is the gif of the spiral sequence of the optimized volume compared with TA's output:
+<table style="width: 100%; text-align: center;">
+  <tr>
+    <td style="width: 50%;">
+      <figure style="display: inline-block; width: 100%;">
+        <img src="images/part_3.gif" alt="360 degree render of the Lego Bulldozer" />
+        <figcaption>360 degree render of the Lego Bulldozer (My output)</figcaption>
+      </figure>
+    </td>
+    <td style="width: 50%;">
+      <figure style="display: inline-block; width: 100%;">
+        <img src="ta_images/part_3.gif" alt="TA's output for Part 2" />
+        <figcaption>TA's output for Part 3</figcaption>
+      </figure>
+    </td>
+  </tr>
+</table>
+
+<!-- Markdeep: --><style class="fallback">body{visibility:hidden;white-space:pre;font-family:monospace}</style><script src="markdeep.min.js" charset="utf-8"></script><script src="https://morgan3d.github.io/markdeep/latest/markdeep.min.js?" charset="utf-8"></script><script>window.alreadyProcessedMarkdeep||(document.body.style.visibility="visible")</script>
