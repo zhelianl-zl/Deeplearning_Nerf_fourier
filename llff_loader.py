@@ -54,16 +54,19 @@ def load_llff_from_poses_bounds(images_dir, poses_bounds_path, downscale=1, devi
     poses, bounds, H0, W0, F0 = _read_poses_bounds(poses_bounds_path)
 
     # 按 downscale 缩小
+    # downscale
     H = int(H0 / downscale)
     W = int(W0 / downscale)
     fx = F0 / downscale
     fy = F0 / downscale
 
     # principal point 设在图像中心（像素）
+    # The principal point is set at the center of the image (pixel)
     cx = W * 0.5
     cy = H * 0.5
 
     # 读取 images_dir 下的图片，按自然排序
+    # Read the images under images_dir and sort them by natural order
     names = [n for n in os.listdir(images_dir) if n.lower().endswith((".jpg",".jpeg",".png"))]
     def _num_key(s):
         stem = os.path.splitext(s)[0]
@@ -80,10 +83,16 @@ def load_llff_from_poses_bounds(images_dir, poses_bounds_path, downscale=1, devi
         image = _load_image(path, target_size=(H, W))
 
         # 从 pose 取 3x4 的 c2w
+        # Get 3x4 c2w from pose : poses_bounds.npy
         c2w = np.eye(4, dtype=np.float32)
         c2w[:3, :4] = poses[i, :, :4]
 
         # ★ 坐标系修正：LLFF(OpenGL) -> OpenCV/PyTorch3D
+        # Coordinate system correction: LLFF (OpenGL) -> OpenCV/PyTorch3D
+        # Assemble a 4x4 c2w and perform coordinate correction 
+        # (LLFF/OpenGL → OpenCV/PyTorch3D): c2w[:3,1]*=-1, c2w[:3,2]*=-1.
+        # _c2w_to_RT(c2w) → R = c2w[:3,:3]^T; T = -R @ c2w[:3,3] (obtaining world→camera)
+
         c2w[:3, 1] *= -1.0
         c2w[:3, 2] *= -1.0
 
@@ -95,18 +104,23 @@ def load_llff_from_poses_bounds(images_dir, poses_bounds_path, downscale=1, devi
         focal = torch.tensor([[fx, fy]], dtype=torch.float32, device=device)
         principal_point = torch.tensor([[cx, cy]], dtype=torch.float32, device=device)
 
+        # Creating a Pytorch3D Camera
         cam = PerspectiveCameras(
+            # Pixel unit
             focal_length=torch.tensor([[fx, fy]], dtype=torch.float32, device=device),
+            # Pixel unit, image center
             principal_point=torch.tensor([[cx, cy]], dtype=torch.float32, device=device),
             image_size=torch.tensor([[H, W]], dtype=torch.float32, device=device),
             R=torch.from_numpy(R).unsqueeze(0).to(device=device, dtype=torch.float32),
             T=torch.from_numpy(T).unsqueeze(0).to(device=device, dtype=torch.float32),
-            in_ndc=False,   # 像素坐标系
+            in_ndc=False,   # Very important： use pixel coordinate system
             device=device,
         )
 
         near_i, far_i = float(bounds[i, 0]), float(bounds[i, 1])
 
+        # Record the near and far values ​​for each image (from poses_bounds.npy)
+        # Returns a list of samples: Each element in the dictionary:
         samples.append({
             "image": image.to(device),
             "camera": cam,

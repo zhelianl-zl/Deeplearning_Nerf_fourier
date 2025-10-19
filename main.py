@@ -37,7 +37,6 @@ from dataset import (
 
 from render_functions import render_points
 
-
 # Model class containing:
 #   1) Implicit volume defining the scene
 #   2) Sampling scheme which generates sample points along rays
@@ -50,17 +49,32 @@ class Model(torch.nn.Module):
     ):
         super().__init__()
 
+        # (cfg.implicit_function)
         # Get implicit function from config
         self.implicit_fn = volume_dict[cfg.implicit_function.type](
+            # NeuralRadianceField（implicit.py）
+            #Internally includes: HarmonicEmbedding (positional encoding/Fourier features; also often called positional encoding): maps a 3D point x to a high-frequency space (the number of frequency bands is controlled by n_harmonic_functions_xyz ).
+            #                     MLPWithInputSkips: a multi-layer perceptron with skip connections (append_xyz determines which layers the original input is concatenated to).
+            #                     linear1 outputs a 4D ([r, g, b, sigma]) output. RGB is typically sigmoid-transformed to [0, 1], and sigma (density) is truncated to non-negative using ReLU.
             cfg.implicit_function
         )
 
         # Point sampling (raymarching) scheme
+        # The implementation is StratifiedRaysampler (sampler.py)
+        # Core: On each ray, randomly sample n_pts_per_ray distances t in the interval [near, far], and get sample_points = o + t * d.
         self.sampler = sampler_dict[cfg.sampler.type](
             cfg.sampler
         )
 
         # Initialize volume renderer
+        # The implementation is VolumeRenderer (renderer.py)
+        # Core: Volume rendering of sigma, rgb along the ray:
+        # 1 Calculate the step size Δt between adjacent sampling points.
+        # 2 alpha = 1 - exp(-sigma * Δt)
+        # 3 T = cumprod(1 - alpha) (transmittance)
+        # 4 Weight w = T * alpha
+        # 5 Color C = Σ w * rgb
+        # 6 Depth D = Σ w * t
         self.renderer = renderer_dict[cfg.renderer.type](
             cfg.renderer
         )
@@ -79,15 +93,15 @@ class Model(torch.nn.Module):
             ray_bundle
         )
 
-
+# important entrance 4: render_images : Full image rendering PNG & composite GIF
 def render_images(
     model,
     cameras,
     image_size,
     save=True,
     file_prefix='images/flower',
-    nears=None,            # ← 新增
-    fars=None              # ← 新增
+    nears=None,            # 
+    fars=None              # 
 ):
     all_images = []
     device = list(model.parameters())[0].device
@@ -97,21 +111,32 @@ def render_images(
         torch.cuda.empty_cache()
         camera = camera.to(device)
 
+        # pixel → ray
+        # Generate pixel grid for the entire image
+        # Returns the coordinates of all pixels in the entire image (H×W)
         xy_grid   = get_pixels_from_image(image_size, camera)
+        # If a nears/fars list is passed in, write ray_bundle.nears/fars according to the current view index
         ray_bundle = get_rays_from_pixels(xy_grid, image_size, camera)
 
         # 渲染时也写入该视角的 near/far（若提供）
+        # Also write the near/far of this perspective when rendering
         if nears is not None and fars is not None:
             ray_bundle.nears = nears[cam_idx]
             ray_bundle.fars  = fars[cam_idx]
 
         # 采样点
+        # sampling point
+        # Layered sampling along rays : get ray_bundle.sample_points (shape [N_rays, N_samples, 3])
         ray_bundle = model.sampler(ray_bundle)
 
         # 前向渲染
+        # volume rendering
+        # forward rendering
+        # Output: out['feature'] ([N_rays,3]), out['depth'] ([N_rays])
         out = model(ray_bundle)
 
         # === DEBUG: 渲染输出体检（可留可删）===
+        # DEBUG: Rendering output check (can be left or deleted)
         feat = out['feature']
         if not torch.isfinite(feat).all():
             print("[WARN] feature contains NaN/Inf")
@@ -122,10 +147,11 @@ def render_images(
             print("depth stats: min/mean/max =",
                   float(d.min()), float(d.mean()), float(d.max()))
         # ==================================
-
+        
+        # Plastic Surgery → Pictures
         image = np.array(out['feature'].view(image_size[1], image_size[0], 3).detach().cpu())
         all_images.append(image)
-
+        # If save=True, save to f'{file_prefix}_{cam_idx:03d}.png'
         if save:
             os.makedirs(os.path.dirname(file_prefix), exist_ok=True)
             out_path = f'{file_prefix}_{cam_idx:03d}.png'
@@ -233,9 +259,11 @@ def train(
     )
     imageio.mimsave('images/part_2.gif', [np.uint8(im * 255) for im in all_images], loop=0)
 
-
+# important entrance 2: create_model(cfg)
 def create_model(cfg):
     # Create model
+    # Comprise: Model(cfg)
+    # class Model(torch.nn.Module):（main.py）
     model = Model(cfg)
     model.cuda(); model.train()
 
@@ -286,15 +314,20 @@ def create_model(cfg):
 
     return model, optimizer, lr_scheduler, start_epoch, checkpoint_path
 
+# important entrance 1: train_nerf(cfg):
+# In train_nerf, split samples into train/val; and write back the global sampling range to cfg.sampler.min_depth/max_depth (take the min/max of all near/far perspectives)
 def train_nerf(cfg):
     from torch.utils.data import Dataset
+    #Read LLFF poses_bounds.npy and images
     from llff_loader import load_llff_from_poses_bounds
 
     cameras_all = None   # 先占位，保证后面可用
 
     # ===== 准备数据（并把 near/far 写回 cfg.sampler 用于采样范围）=====
+    #===== Prepare data (and write near/far back to cfg.sampler for sampling range) =====
     if cfg.data.dataset_name == "llff_custom":
         H, W = cfg.data.image_size[1], cfg.data.image_size[0]
+        # llff_loader.py
         samples = load_llff_from_poses_bounds(
             images_dir=cfg.data.images_dir,
             poses_bounds_path=cfg.data.poses_bounds_path,
@@ -331,11 +364,15 @@ def train_nerf(cfg):
             image_size=[cfg.data.image_size[1], cfg.data.image_size[0]],
         )
 
+    # important entrance 2: create_model(cfg):
     # ===== 再创建模型（此时 cfg.sampler 已被 near/far 更新）=====
+    # Create the model (cfg.sampler has been updated with near/far at this time)
     model, optimizer, lr_scheduler, start_epoch, checkpoint_path = create_model(cfg)
     print("Nerf model:-")
     print(model)
     # （可选）训练开始前渲染一遍，确认不是全黑
+    # It is just for testing. If the image loaded at the beginning is abnormal, you can stop running directly.
+    # In train_nerf, render_images(...) is called once to check if the output is reasonable.
     if cameras_all is not None:
         model.eval()
         with torch.no_grad():
@@ -354,9 +391,11 @@ def train_nerf(cfg):
         collate_fn=trivial_collate,
     )
 
+    # important entrance 3: Training loop
     # ===== 训练循环 =====
     for epoch in range(start_epoch, cfg.training.num_epochs):
         t_range = tqdm.tqdm(enumerate(train_dataloader))
+        # The batch returned by DataLoader is: {"image","camera","near","far"}
         for iteration, batch in t_range:
             image = batch[0]["image"].cuda()   # 可能是 [1,3,H,W] 或 [3,H,W]
             camera = batch[0]["camera"].cuda()
@@ -364,6 +403,8 @@ def train_nerf(cfg):
             far    = batch[0]["far"]
 
             # 统一成 [B,H,W,3] 以便采样像素
+            # images_bhwc: Convert image to [B,H,W,3] (the code is compatible with several cases)
+            # Unify to [B,H,W,3] for sampling pixels
             if image.dim() == 4 and image.shape[1] == 3:        # [B,3,H,W]
                 images_bhwc = image.permute(0, 2, 3, 1)
             elif image.dim() == 3 and image.shape[0] == 3:      # [3,H,W]
@@ -375,30 +416,47 @@ def train_nerf(cfg):
 
 
             # 采样像素 & 构造光线
+            # Sample pixels & construct rays
+            # (ray_utils.py)
+            # get_random_pixels_from_image: For efficient training, you randomly sample pixels instead of the entire image.
+            # xy_grid = get_random_pixels_from_image(K, image_size, camera)
+            # K = cfg.training.batch_size (such as 4096)
             xy_grid   = get_random_pixels_from_image(cfg.training.batch_size, cfg.data.image_size, camera)
+            
+            # (ray_utils.py)
+            # According to the camera intrinsic parameters (pixel focal length, principal point) and external parameters (R, T), 
+            # Convert the pixel point to the ray origin o and direction d in the camera/world coordinate system
             ray_bundle = get_rays_from_pixels(xy_grid, cfg.data.image_size, camera)
 
             # 写入 near/far 到 bundle（字段名按你的 RayBundle 定义，这里用 nears/fars）
+            # Write near/far: ray_bundle.nears = near, ray_bundle.fars = far
             ray_bundle.nears = near
             ray_bundle.fars  = far
 
-            # 前向与损失
+            # define forword and loss
+            # rgb_gt: Take the true color of these pixels on the GT image [K,3]
             rgb_gt = sample_images_at_xy(images_bhwc, xy_grid)  # [K,3]
-            out    = model(ray_bundle)                          # out['feature']:[K,3]
+            # forward:
+            out    = model(ray_bundle) # out['feature']:[K,3] Volume rendering color output by the renderer
             loss   = torch.mean((out["feature"] - rgb_gt) ** 2)
 
             optimizer.zero_grad()
+
+            # Backpropagation
             loss.backward()
             optimizer.step()
 
             t_range.set_description(f'Epoch: {epoch:04d}, Loss: {loss:.06f}')
             t_range.refresh()
 
-        # 学习率
+        # define learning rate
         lr_scheduler.step()
 
+        # Visualization/Checkpointing
         # 每隔 render_interval 个 epoch 渲染一次（用你给的全部相机）
+        # Render every render_interval epochs
         if (epoch % cfg.training.render_interval == 0) and (epoch > 0) and (cameras_all is not None):
+            # model.eval() → Call render_images(...) (below) once to render all viewports, save flower_XXX.png and combine it into flower.gif
             model.eval()
             with torch.no_grad():
                 imgs = render_images(
@@ -406,10 +464,13 @@ def train_nerf(cfg):
                     save=True, file_prefix='images/flower',
                     nears=nears_all, fars=fars_all
                 )
+                # Composite GIF
                 imageio.mimsave('images/flower.gif', [np.uint8(im*255) for im in imgs], duration=0.08)
+            # Every checkpoint_interval epochs: save {model, optimizer, epoch}
             model.train()
 
         # 按需保存 checkpoint（可留可去）
+        # Save checkpoints on demand (can be kept or removed)
         if (epoch % cfg.training.checkpoint_interval == 0) and (len(cfg.training.checkpoint_path) > 0) and (epoch > 0):
             print(f"Storing checkpoint {checkpoint_path}.")
             torch.save(

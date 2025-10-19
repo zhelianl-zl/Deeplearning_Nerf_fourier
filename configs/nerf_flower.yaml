@@ -1,23 +1,24 @@
+# important entrance 5: config
 seed: 1
 type: train_nerf
 
 data:
   dataset_name: llff_custom
-  images_dir: "data/flower/images"
+  images_dir: "data/flower/images" # important 1
   poses_bounds_path: "data/flower/poses_bounds.npy"
   downscale: 1
-  image_size: [128, 128]
+  image_size: [128, 128] # Consistent with camera image_size # important 2 : if possible, the more the better
 
 training:
-  num_epochs: 250
-  batch_size: 4096 #4096
+  num_epochs: 500 # important 3 : if possible, the more the better
+  batch_size: 4096 #4096 # important 4 : if possible, the more the better
   lr: 0.0005
   checkpoint_path: ""
   resume: false
-  checkpoint_interval: 249
-  render_interval: 249
+  checkpoint_interval: 100 # important 5
+  render_interval: 100 # important 6
   lr_scheduler_gamma: 0.1
-  lr_scheduler_step_size: 100
+  lr_scheduler_step_size: 9
 
 implicit_function:
   type: nerf
@@ -28,7 +29,7 @@ implicit_function:
 
 sampler:
   type: stratified
-  n_pts_per_ray: 64
+  n_pts_per_ray: 256 # important 7 : the nums of the ray : if possible, the more the better
   min_depth: 0.0
   max_depth: 5.0
 
